@@ -74,8 +74,29 @@ impl PolynomialFunction for GraphSpline {
     }
 }
 
+fn calculate_interval_degrees_list(points: &Vec<Point>) -> Vec<u8> {
+    // To accomodate for the additionnal constraint at local optimum, the splines leading to a local
+    // optimum will need to be quartic instead of only cubic
+    let mut interval_degrees_list = vec![3; points.len() - 1];
+
+    points
+        .windows(3)
+        .enumerate()
+        .filter(|(idx, points)|
+            (points[0].y < points[1].y && points[2].y <= points[1].y)
+                || (points[0].y > points[1].y && points[2].y >= points[1].y)
+        )
+        .for_each(|(idx, points)|
+            interval_degrees_list[idx] = 4
+        )
+    ;
+
+    interval_degrees_list
+}
+
 // pub fn get_graph_spline_interpolation_function(points: Vec<Point>) -> GraphSpline {
 //     // We're going to construct the equation system from the points
+//     let mut interval_degrees_list = calculate_interval_degrees_list(&points);
 // }
 
 #[cfg(test)]
@@ -146,5 +167,35 @@ mod tests {
         };
 
         assert_eq!(p.eval(1.0), None);
+    }
+
+    #[test]
+    fn it_correctly_calculates_interval_degrees_list() {
+        let points = vec![
+            Point {x: 0.0, y: 10.0},
+            Point {x: 1.0, y: 20.0},
+            Point {x: 2.0, y: 30.0},
+            Point {x: 3.0, y: 20.0},
+            Point {x: 4.0, y: 10.0},
+            Point {x: 5.0, y: 20.0},
+            Point {x: 6.0, y: 20.0},
+            Point {x: 7.0, y: 10.0},
+            Point {x: 8.0, y: 0.0},
+            Point {x: 9.0, y: 0.0},
+            Point {x: 10.0, y: 10.0},
+        ];
+
+        let interval_degrees = calculate_interval_degrees_list(&points);
+
+        assert_eq!(interval_degrees[0], 3);
+        assert_eq!(interval_degrees[1], 4);
+        assert_eq!(interval_degrees[2], 3);
+        assert_eq!(interval_degrees[3], 4);
+        assert_eq!(interval_degrees[4], 4);
+        assert_eq!(interval_degrees[5], 3);
+        assert_eq!(interval_degrees[6], 3);
+        assert_eq!(interval_degrees[7], 4);
+        assert_eq!(interval_degrees[8], 3);
+        assert_eq!(interval_degrees[9], 3);
     }
 }
