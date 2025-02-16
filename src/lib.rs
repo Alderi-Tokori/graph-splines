@@ -74,29 +74,73 @@ impl PolynomialFunction for GraphSpline {
     }
 }
 
-fn calculate_interval_degrees_list(points: &Vec<Point>) -> Vec<u8> {
-    // To accomodate for the additionnal constraint at local optimum, the splines leading to a local
-    // optimum will need to be quartic instead of only cubic
-    let mut interval_degrees_list = vec![3; points.len() - 1];
+fn get_graph_spline_intervals(points: &Vec<Point>) -> Vec<GraphSplineInterval> {
+    let mut interval_degrees_list= Vec::new();
 
     points
         .windows(3)
         .enumerate()
-        .filter(|(idx, points)|
-            (points[0].y < points[1].y && points[2].y <= points[1].y)
-                || (points[0].y > points[1].y && points[2].y >= points[1].y)
-        )
-        .for_each(|(idx, points)|
-            interval_degrees_list[idx] = 4
-        )
+        .for_each(|(idx, points)| {
+            let mut degree = 3;
+
+            if (points[0].y < points[1].y && points[2].y <= points[1].y)
+                || (points[0].y > points[1].y && points[2].y >= points[1].y) {
+                // To accomodate for the additionnal constraint at local optimum, the splines leading to a local
+                // optimum will need to be quartic instead of only cubic
+                degree += 1;
+            }
+
+            interval_degrees_list.push(GraphSplineInterval {
+                start: points[0].x,
+                end: points[1].x,
+                polynomial: Polynomial {
+                    coefficients: vec![0.0; degree]
+                }
+            })
+        })
     ;
+
+    let nb_points = points.len();
+    if nb_points >= 2 {
+        interval_degrees_list.push(GraphSplineInterval {
+            start: points[points.len() - 2].x,
+            end: points[points.len() - 1].x,
+            polynomial: Polynomial {
+                coefficients: vec![0.0; 3]
+            }
+        })
+    }
 
     interval_degrees_list
 }
 
+// fn get_graph_spline_equation_matrix(points: &Vec<Point>, interval_degrees_list: &Vec<u8>) -> Vec<Vec<u64>> {
+//     let nb_unknowns:u8 = interval_degrees_list
+//         .iter()
+//         .map(|d| {d + 1})
+//         .sum()
+//     ;
+//
+//     let mut equation_matrix = vec![vec![0; usize::from(nb_unknowns) + 1]; usize::from(nb_unknowns)];
+//     let mut equation_idx = 0;
+//     let mut coefficient_idx = 0;
+//
+//
+// }
+
 // pub fn get_graph_spline_interpolation_function(points: Vec<Point>) -> GraphSpline {
 //     // We're going to construct the equation system from the points
-//     let mut interval_degrees_list = calculate_interval_degrees_list(&points);
+//     let intervals = get_graph_spline_intervals(&points);
+//
+//     let nb_unknowns = intervals
+//         .iter()
+//         .map(|i| {i.polynomial.coefficients.len() + 1})
+//         .sum()
+//     ;
+//
+//     let mut equation_matrix = vec![vec![0; nb_unknowns + 1]; nb_unknowns];
+//     let mut equation_idx = 0;
+//     let mut coefficient_idx = 0;
 // }
 
 #[cfg(test)]
@@ -185,17 +229,17 @@ mod tests {
             Point {x: 10.0, y: 10.0},
         ];
 
-        let interval_degrees = calculate_interval_degrees_list(&points);
+        let intervals = get_graph_spline_intervals(&points);
 
-        assert_eq!(interval_degrees[0], 3);
-        assert_eq!(interval_degrees[1], 4);
-        assert_eq!(interval_degrees[2], 3);
-        assert_eq!(interval_degrees[3], 4);
-        assert_eq!(interval_degrees[4], 4);
-        assert_eq!(interval_degrees[5], 3);
-        assert_eq!(interval_degrees[6], 3);
-        assert_eq!(interval_degrees[7], 4);
-        assert_eq!(interval_degrees[8], 3);
-        assert_eq!(interval_degrees[9], 3);
+        assert_eq!(intervals[0].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[1].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[2].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[3].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[4].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[5].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[6].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[7].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[8].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[9].polynomial.coefficients.len(), 3);
     }
 }
