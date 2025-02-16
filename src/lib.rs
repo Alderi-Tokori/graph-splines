@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Point {
     x: f64,
     y: f64,
@@ -33,14 +33,14 @@ impl PolynomialFunction for Polynomial {
 
 #[derive(Debug)]
 struct GraphSplineInterval {
-    start: f64,
-    end: f64,
+    start: Point,
+    end: Point,
     polynomial: Polynomial,
 }
 
 impl PolynomialFunction for GraphSplineInterval {
     fn eval(&self, x: f64) -> Option<f64> {
-        self.polynomial.eval(x - self.start)
+        self.polynomial.eval(x - self.start.x)
     }
 }
 
@@ -58,16 +58,16 @@ impl PolynomialFunction for GraphSpline {
         let first_interval = self.intervals.first().unwrap();
         let last_interval = self.intervals.last().unwrap();
 
-        if x < first_interval.end {
+        if x < first_interval.end.x {
             return first_interval.eval(x);
-        } else if x >= last_interval.start {
+        } else if x >= last_interval.start.x {
             return last_interval.eval(x);
         }
 
         self.intervals[1..self.intervals.len() - 1]
             .into_iter()
             .find(|i| {
-                i.start <= x && i.end > x
+                i.start.x <= x && i.end.x > x
             })
             .expect("We've tested the two edge cases already so we should always have an interval here, as all intervals should be next to each other")
             .eval(x)
@@ -91,10 +91,10 @@ fn get_graph_spline_intervals(points: &Vec<Point>) -> Vec<GraphSplineInterval> {
             }
 
             interval_degrees_list.push(GraphSplineInterval {
-                start: points[0].x,
-                end: points[1].x,
+                start: points[0],
+                end: points[1],
                 polynomial: Polynomial {
-                    coefficients: vec![0.0; degree]
+                    coefficients: vec![0.0; degree + 1]
                 }
             })
         })
@@ -103,10 +103,10 @@ fn get_graph_spline_intervals(points: &Vec<Point>) -> Vec<GraphSplineInterval> {
     let nb_points = points.len();
     if nb_points >= 2 {
         interval_degrees_list.push(GraphSplineInterval {
-            start: points[points.len() - 2].x,
-            end: points[points.len() - 1].x,
+            start: points[points.len() - 2],
+            end: points[points.len() - 1],
             polynomial: Polynomial {
-                coefficients: vec![0.0; 3]
+                coefficients: vec![0.0; 4]
             }
         })
     }
@@ -114,33 +114,141 @@ fn get_graph_spline_intervals(points: &Vec<Point>) -> Vec<GraphSplineInterval> {
     interval_degrees_list
 }
 
-// fn get_graph_spline_equation_matrix(points: &Vec<Point>, interval_degrees_list: &Vec<u8>) -> Vec<Vec<u64>> {
-//     let nb_unknowns:u8 = interval_degrees_list
-//         .iter()
-//         .map(|d| {d + 1})
-//         .sum()
-//     ;
-//
-//     let mut equation_matrix = vec![vec![0; usize::from(nb_unknowns) + 1]; usize::from(nb_unknowns)];
-//     let mut equation_idx = 0;
-//     let mut coefficient_idx = 0;
-//
-//
-// }
+fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec<Vec<f64>> {
+    let nb_unknowns = intervals
+        .iter()
+        .map(|i| i.polynomial.coefficients.len())
+        .sum()
+    ;
 
-// pub fn get_graph_spline_interpolation_function(points: Vec<Point>) -> GraphSpline {
+    let mut equation_matrix = vec![vec![0.0; nb_unknowns + 1]; nb_unknowns];
+    let mut equation_idx = 0;
+    let mut coefficient_idx = 0;
+
+    // Initial boundary condition
+    // Natural spline
+    equation_matrix[equation_idx][coefficient_idx + 2] = 2.0;
+    equation_idx += 1;
+    
+    // Starts on first point
+    let first_interval = intervals.first().expect("We should have at least one interval if we called this function");
+    equation_matrix[equation_idx][coefficient_idx] = 1.0;
+    equation_matrix[equation_idx][nb_unknowns] = first_interval.start.y;
+    equation_idx += 1;
+
+    // inner knots conditions
+    intervals
+        .windows(2)
+        .for_each(|intervals| {
+            let max_x_value_left = intervals[0].end.x - intervals[0].start.x;
+            let coefficient_idx_right = coefficient_idx + intervals[0].polynomial.coefficients.len();
+
+            // C0 continuity left interval
+            let mut cur_x_value = 1.0;
+            for i in 0..intervals[0].polynomial.coefficients.len() {
+                equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * cur_x_value;
+
+                cur_x_value *= max_x_value_left;
+            }
+            equation_matrix[equation_idx][nb_unknowns] = intervals[0].end.y;
+            equation_idx += 1;
+            
+            // C0 continuity right interval
+            equation_matrix[equation_idx][coefficient_idx_right] = 1.0;
+            equation_matrix[equation_idx][nb_unknowns] = intervals[1].start.y;
+            equation_idx += 1;
+            
+            // C1 continuity 
+            let derivative_number = 1;
+            let mut cur_x_value = 1.0;
+            for i in derivative_number..intervals[0].polynomial.coefficients.len() {
+                let mut derivative_coeff = 1.0;
+                for j in 0..derivative_number {
+                    derivative_coeff = derivative_coeff * ((i - j) as f64);
+                }
+
+                equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * derivative_coeff * cur_x_value;
+
+                cur_x_value *= max_x_value_left;
+            }
+            equation_matrix[equation_idx][coefficient_idx_right + derivative_number] = 1.0;
+            equation_idx += 1;
+            
+            // C2 continuity
+            let derivative_number = 2;
+            let mut cur_x_value = 1.0;
+            for i in derivative_number..intervals[0].polynomial.coefficients.len() {
+                let mut derivative_coeff = 1.0;
+                for j in 0..derivative_number {
+                    derivative_coeff = derivative_coeff * ((i - j) as f64);
+                }
+
+                equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * derivative_coeff * cur_x_value;
+
+                cur_x_value *= max_x_value_left;
+            }
+            equation_matrix[equation_idx][coefficient_idx_right + derivative_number] = 1.0;
+            equation_idx += 1;
+            
+            // Additional constraint for local optimum: first derivative must be zero
+            if intervals[0].polynomial.coefficients.len() == 5 {
+                let derivative_number = 1;
+                let mut cur_x_value = 1.0;
+                for i in derivative_number..intervals[0].polynomial.coefficients.len() {
+                    let mut derivative_coeff = 1.0;
+                    for j in 0..derivative_number {
+                        derivative_coeff = derivative_coeff * ((i - j) as f64);
+                    }
+
+                    equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * derivative_coeff * cur_x_value;
+
+                    cur_x_value *= max_x_value_left;
+                }
+                equation_idx += 1;
+            }
+
+            coefficient_idx += intervals[0].polynomial.coefficients.len();
+        })
+    ;
+
+    // Final boundary conditions
+    // Natural spline
+    let last_interval = intervals.last().expect("We should have at least one interval if we called this function");
+    let max_x_value = last_interval.end.x - last_interval.start.x;
+    let mut cur_x_value = 1.0;
+    let derivative_number = 2;
+    for i in derivative_number..last_interval.polynomial.coefficients.len() {
+        let mut derivative_coeff = 1.0;
+        for j in 0..derivative_number {
+            // Second derivate
+            derivative_coeff = derivative_coeff * ((i - j) as f64);
+        }
+        
+        equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * derivative_coeff * cur_x_value;
+
+        cur_x_value *= max_x_value;
+    }
+    equation_idx += 1;
+
+    // Ends on last point
+    let mut cur_x_value = 1.0;
+    for i in 0..last_interval.polynomial.coefficients.len() {
+        equation_matrix[equation_idx][coefficient_idx + i] = 1.0 * cur_x_value;
+
+        cur_x_value *= max_x_value;
+    }
+
+    equation_matrix
+}
+
+// pub fn get_graph_spline_interpolation_function(points: Vec<Point>) -> Option<GraphSpline> {
+//     if points.len() < 2 {
+//         return None;
+//     }
+//     
 //     // We're going to construct the equation system from the points
 //     let intervals = get_graph_spline_intervals(&points);
-//
-//     let nb_unknowns = intervals
-//         .iter()
-//         .map(|i| {i.polynomial.coefficients.len() + 1})
-//         .sum()
-//     ;
-//
-//     let mut equation_matrix = vec![vec![0; nb_unknowns + 1]; nb_unknowns];
-//     let mut equation_idx = 0;
-//     let mut coefficient_idx = 0;
+//     let equation_matrix = get_graph_spline_equation_matrix(&intervals);
 // }
 
 #[cfg(test)]
@@ -171,22 +279,22 @@ mod tests {
         let p = GraphSpline {
             intervals: vec![
                 GraphSplineInterval {
-                    start: 0.0,
-                    end: 5.0,
+                    start: Point {x: 0.0, y: 0.0},
+                    end: Point {x: 5.0, y: 0.0},
                     polynomial: Polynomial {
                         coefficients: vec![5.0, 2.0]
                     }
                 },
                 GraphSplineInterval {
-                    start: 5.0,
-                    end: 10.0,
+                    start: Point {x: 5.0, y: 0.0},
+                    end: Point {x: 10.0, y: 0.0},
                     polynomial: Polynomial {
                         coefficients: vec![0.0, 1.0]
                     }
                 },
                 GraphSplineInterval {
-                    start: 10.0,
-                    end: 15.0,
+                    start: Point {x: 10.0, y: 0.0},
+                    end: Point {x: 15.0, y: 0.0},
                     polynomial: Polynomial {
                         coefficients: vec![0.0, 1.0, 1.0]
                     }
@@ -231,15 +339,15 @@ mod tests {
 
         let intervals = get_graph_spline_intervals(&points);
 
-        assert_eq!(intervals[0].polynomial.coefficients.len(), 3);
-        assert_eq!(intervals[1].polynomial.coefficients.len(), 4);
-        assert_eq!(intervals[2].polynomial.coefficients.len(), 3);
-        assert_eq!(intervals[3].polynomial.coefficients.len(), 4);
-        assert_eq!(intervals[4].polynomial.coefficients.len(), 4);
-        assert_eq!(intervals[5].polynomial.coefficients.len(), 3);
-        assert_eq!(intervals[6].polynomial.coefficients.len(), 3);
-        assert_eq!(intervals[7].polynomial.coefficients.len(), 4);
-        assert_eq!(intervals[8].polynomial.coefficients.len(), 3);
-        assert_eq!(intervals[9].polynomial.coefficients.len(), 3);
+        assert_eq!(intervals[0].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[1].polynomial.coefficients.len(), 5);
+        assert_eq!(intervals[2].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[3].polynomial.coefficients.len(), 5);
+        assert_eq!(intervals[4].polynomial.coefficients.len(), 5);
+        assert_eq!(intervals[5].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[6].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[7].polynomial.coefficients.len(), 5);
+        assert_eq!(intervals[8].polynomial.coefficients.len(), 4);
+        assert_eq!(intervals[9].polynomial.coefficients.len(), 4);
     }
 }
