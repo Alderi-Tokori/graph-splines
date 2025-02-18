@@ -1,3 +1,5 @@
+use core::cmp::Ordering;
+
 #[derive(Debug, Copy, Clone)]
 pub struct Point {
     x: f64,
@@ -265,6 +267,52 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
     equation_matrix
 }
 
+fn reorder_equation_matrix(equation_matrix: &mut Vec<Vec<f64>>) {
+    equation_matrix.sort_by(|a, b| {
+        let a_left_index = a
+            .iter()
+            .position(|e| *e != 0.0)
+            .unwrap_or_default()
+        ;
+        
+        let b_left_index = b
+            .iter()
+            .position(|e| *e != 0.0)
+            .unwrap_or_default()
+        ;
+        
+        if a_left_index < b_left_index {
+            return Ordering::Less;
+        } else if a_left_index > b_left_index { 
+            return Ordering::Greater;
+        }
+
+        let a_right_index = a
+            .iter()
+            .rev()
+            .skip(1)
+            .position(|e| *e != 0.0)
+            .unwrap_or_default()
+        ;
+
+        let b_right_index = b
+            .iter()
+            .rev()
+            .skip(1)
+            .position(|e| *e != 0.0)
+            .unwrap_or_default()
+        ;
+        
+        if a_right_index > b_right_index {
+            return Ordering::Less;
+        } else if a_right_index < b_right_index {
+            return Ordering::Greater;
+        }
+        
+        return Ordering::Equal;
+    });
+}
+
 // pub fn get_graph_spline_interpolation_function(points: Vec<Point>) -> Option<GraphSpline> {
 //     if points.len() < 2 {
 //         return None;
@@ -382,9 +430,9 @@ mod tests {
             Point {x: 1.0, y: 3.0},
             Point {x: 2.0, y: 2.0}
         ];
-        
+
         let intervals = get_graph_spline_intervals(&points);
-        
+
         let equation_matrix = get_graph_spline_equation_matrix(&intervals);
         assert_eq!(equation_matrix, vec![
             vec![0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -396,6 +444,31 @@ mod tests {
             vec![0.0, 1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 6.0, 0.0],
             vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 2.0],
+        ]);
+    }
+
+    #[test]
+    fn it_correctly_reorders_equation_matrix() {
+        let points = vec![
+            Point {x: 0.0, y: 1.0},
+            Point {x: 1.0, y: 3.0},
+            Point {x: 2.0, y: 2.0}
+        ];
+
+        let intervals = get_graph_spline_intervals(&points);
+
+        let mut equation_matrix = get_graph_spline_equation_matrix(&intervals);
+        reorder_equation_matrix(&mut equation_matrix);
+        assert_eq!(equation_matrix, vec![
+            vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            vec![1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 3.0],
+            vec![0.0, 1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 1.0, 2.0, 3.0, 4.0, 0.0, -1.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            vec![0.0, 0.0, 2.0, 6.0, 12.0, 0.0, 0.0, -2.0, 0.0, 0.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 3.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 2.0],
+            vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 6.0, 0.0],
         ]);
     }
 }
