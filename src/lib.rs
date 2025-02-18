@@ -139,11 +139,9 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
     let mut equation_matrix = vec![vec![0.0; nb_unknowns + 1]; nb_unknowns];
     let mut equation_idx = 0;
     let mut coefficient_idx = 0;
+    let mut has_done_initial_boundary_condtition = false;
 
     // Initial boundary condition
-    // Natural spline
-    equation_matrix[equation_idx][coefficient_idx + 2] = 2.0;
-    equation_idx += 1;
     
     // Starts on first point
     let first_interval = intervals.first().expect("We should have at least one interval if we called this function");
@@ -169,19 +167,20 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
             );
             equation_matrix[equation_idx][nb_unknowns] = intervals[0].end.y;
             equation_idx += 1;
-            
-            // C0 continuity right interval
-            get_equation_factors(
-                &mut equation_matrix[equation_idx],
-                &coefficient_idx_right,
-                &intervals[1].polynomial.coefficients.len(),
-                &0.0,
-                &0,
-                &1.0
-            );
-            equation_matrix[equation_idx][nb_unknowns] = intervals[1].start.y;
-            equation_idx += 1;
-            
+
+            // Additional constraint for local optimum: first derivative must be zero
+            if intervals[0].polynomial.coefficients.len() == 5 {
+                get_equation_factors(
+                    &mut equation_matrix[equation_idx],
+                    &coefficient_idx,
+                    &intervals[0].polynomial.coefficients.len(),
+                    &max_x_value_left,
+                    &1,
+                    &1.0
+                );
+                equation_idx += 1;
+            }
+
             // C1 continuity 
             let derivative_number = 1;
             get_equation_factors(
@@ -201,7 +200,15 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
                 &-1.0
             );
             equation_idx += 1;
-            
+
+            if !has_done_initial_boundary_condtition {
+                // Natural spline
+                equation_matrix[equation_idx][coefficient_idx + 2] = 2.0;
+                equation_idx += 1;
+
+                has_done_initial_boundary_condtition = true;
+            }
+
             // C2 continuity
             let derivative_number = 2;
             get_equation_factors(
@@ -221,39 +228,26 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
                 &-1.0
             );
             equation_idx += 1;
-            
-            // Additional constraint for local optimum: first derivative must be zero
-            if intervals[0].polynomial.coefficients.len() == 5 {
-                get_equation_factors(
-                    &mut equation_matrix[equation_idx],
-                    &coefficient_idx,
-                    &intervals[0].polynomial.coefficients.len(),
-                    &max_x_value_left,
-                    &1,
-                    &1.0
-                );
-                equation_idx += 1;
-            }
+
+            // C0 continuity right interval
+            get_equation_factors(
+                &mut equation_matrix[equation_idx],
+                &coefficient_idx_right,
+                &intervals[1].polynomial.coefficients.len(),
+                &0.0,
+                &0,
+                &1.0
+            );
+            equation_matrix[equation_idx][nb_unknowns] = intervals[1].start.y;
+            equation_idx += 1;
 
             coefficient_idx += intervals[0].polynomial.coefficients.len();
         })
     ;
 
-    // Final boundary conditions
-    // Natural spline
+    // Ends on last point
     let last_interval = intervals.last().expect("We should have at least one interval if we called this function");
     let max_x_value = last_interval.end.x - last_interval.start.x;
-    get_equation_factors(
-        &mut equation_matrix[equation_idx],
-        &coefficient_idx,
-        &last_interval.polynomial.coefficients.len(),
-        &max_x_value,
-        &2,
-        &1.0
-    );
-    equation_idx += 1;
-
-    // Ends on last point
     get_equation_factors(
         &mut equation_matrix[equation_idx],
         &coefficient_idx,
@@ -263,6 +257,18 @@ fn get_graph_spline_equation_matrix(intervals: &Vec<GraphSplineInterval>) -> Vec
         &1.0
     );
     equation_matrix[equation_idx][nb_unknowns] = last_interval.end.y;
+    equation_idx += 1;
+    
+    // Final boundary conditions
+    // Natural spline
+    get_equation_factors(
+        &mut equation_matrix[equation_idx],
+        &coefficient_idx,
+        &last_interval.polynomial.coefficients.len(),
+        &max_x_value,
+        &2,
+        &1.0
+    );
 
     equation_matrix
 }
@@ -435,15 +441,15 @@ mod tests {
 
         let equation_matrix = get_graph_spline_equation_matrix(&intervals);
         assert_eq!(equation_matrix, vec![
-            vec![0.0,   0.0,   2.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0],
             vec![1.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   1.0],
             vec![1.0,   1.0,   1.0,   1.0,   1.0,   0.0,   0.0,   0.0,   0.0,   3.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,   1.0,   0.0,   0.0,   0.0,   3.0],
-            vec![0.0,   1.0,   2.0,   3.0,   4.0,   0.0,  -1.0,   0.0,   0.0,   0.0],
-            vec![0.0,   0.0,   2.0,   6.0,  12.0,   0.0,   0.0,  -2.0,   0.0,   0.0],
             vec![0.0,   1.0,   2.0,   3.0,   4.0,   0.0,   0.0,   0.0,   0.0,   0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   2.0,   6.0,   0.0],
+            vec![0.0,   1.0,   2.0,   3.0,   4.0,   0.0,  -1.0,   0.0,   0.0,   0.0],
+            vec![0.0,   0.0,   2.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0],
+            vec![0.0,   0.0,   2.0,   6.0,  12.0,   0.0,   0.0,  -2.0,   0.0,   0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,   1.0,   0.0,   0.0,   0.0,   3.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,   1.0,   1.0,   1.0,   1.0,   2.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   2.0,   6.0,   0.0],
         ]);
     }
 
@@ -461,95 +467,42 @@ mod tests {
         let intervals = get_graph_spline_intervals(&points);
         let equation_matrix = get_graph_spline_equation_matrix(&intervals);
         assert_eq!(equation_matrix, vec![
-            vec![0.0,   0.0,   2.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
             vec![1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      2.0],
-            vec![1.0,   2.0,   4.0,   8.0,  16.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      4.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      4.0],
-            vec![0.0,   1.0,   4.0,  12.0,  32.0,      0.0,  -1.0,  -0.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   2.0,  12.0,  48.0,      0.0,   0.0,  -2.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   1.0,   4.0,  12.0,  32.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,  -0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      3.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      3.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,      0.0,  -1.0,  -0.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,      0.0,   0.0,  -2.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,      5.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,      5.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,  -0.0,  -0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,  -0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,      2.0]
-        ]);
-    }
 
-    #[test]
-    fn it_correctly_reorders_equation_matrix_for_simple_case() {
-        let points = vec![
-            Point {x: 0.0, y: 1.0},
-            Point {x: 1.0, y: 3.0},
-            Point {x: 2.0, y: 2.0}
-        ];
-
-        let intervals = get_graph_spline_intervals(&points);
-
-        let mut equation_matrix = get_graph_spline_equation_matrix(&intervals);
-        reorder_equation_matrix(&mut equation_matrix);
-        assert_eq!(equation_matrix, vec![
-            vec![1.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   1.0],
-            vec![1.0,   1.0,   1.0,   1.0,   1.0,   0.0,   0.0,   0.0,   0.0,   3.0],
-            vec![0.0,   1.0,   2.0,   3.0,   4.0,   0.0,   0.0,   0.0,   0.0,   0.0],
-            vec![0.0,   1.0,   2.0,   3.0,   4.0,   0.0,  -1.0,   0.0,   0.0,   0.0],
-            vec![0.0,   0.0,   2.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0],
-            vec![0.0,   0.0,   2.0,   6.0,  12.0,   0.0,   0.0,  -2.0,   0.0,   0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,   1.0,   0.0,   0.0,   0.0,   3.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,   1.0,   1.0,   1.0,   1.0,   2.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   2.0,   6.0,   0.0],
-        ]);
-    }
-
-    #[test]
-    fn it_correctly_reorders_equation_matrix_for_bigger_case() {
-        let points = vec![
-            Point {x: 0.0, y: 2.0},
-            Point {x: 2.0, y: 4.0},
-            Point {x: 3.0, y: 1.0},
-            Point {x: 4.0, y: 3.0},
-            Point {x: 5.0, y: 5.0},
-            Point {x: 6.0, y: 2.0}
-        ];
-
-        let intervals = get_graph_spline_intervals(&points);
-        let mut equation_matrix = get_graph_spline_equation_matrix(&intervals);
-        reorder_equation_matrix(&mut equation_matrix);
-        assert_eq!(equation_matrix, vec![
-            vec![1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      2.0],
             vec![1.0,   2.0,   4.0,   8.0,  16.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      4.0],
             vec![0.0,   1.0,   4.0,  12.0,  32.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   1.0,   4.0,  12.0,  32.0,      0.0,  -1.0,  -0.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   1.0,   4.0,  12.0,  32.0,      0.0,  -1.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
             vec![0.0,   0.0,   2.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   2.0,  12.0,  48.0,      0.0,   0.0,  -2.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   2.0,  12.0,  48.0,      0.0,   0.0,  -2.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      4.0],
+
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,  -0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0],
+
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      3.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,      0.0,  -1.0,  -0.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,      0.0,   0.0,  -2.0,  -0.0,  -0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,      0.0,  -1.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,      0.0,   0.0,  -2.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      3.0],
+
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,   1.0,      0.0,   0.0,   0.0,   0.0,      5.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,   0.0,   0.0,   0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,  -0.0,  -0.0,      0.0],
-            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,  -0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   1.0,   2.0,   3.0,   4.0,      0.0,  -1.0,   0.0,   0.0,      0.0],
+            vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,  12.0,      0.0,   0.0,  -2.0,   0.0,      0.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   0.0,   0.0,   0.0,      5.0],
+
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      1.0,   1.0,   1.0,   1.0,      2.0],
             vec![0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   0.0,   0.0,   0.0,      0.0,   0.0,   2.0,   6.0,      0.0],
         ]);
+        
+        // 8 lignes max à checker en dessous, 10 colonnes max à checker à droite pour les calculs (+ dernière colonne)
+        // 8 lignes max = 6 (contraintes de continuité) + 1 (contrainte de f' à 0 sur un pic) + 1 (contrainte d'extrémité potentielle)
+        // Peut-être même 7 lignes
+        // 10 colonnes max = degré max des intervales * 2
+        // En fait, 6 colonnes max
+        // Peut-être même 4 ? car la partie gauche se fait supprimer lors de la descente
+        // pour les lignes, s'arrêter aussi à la première ligne nulle après la première ligne non nulle trouvée
     }
 }
